@@ -10,8 +10,10 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
+
 from langchain.agents.initialize import initialize_agent
 from langchain.agents.agent_types import AgentType
+from langchain.tools import Tool
 
 
 
