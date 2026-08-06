@@ -1,0 +1,5 @@
+streamlit
+yfinance
+python-dotenv
+langchain
+langchain-google-genai
