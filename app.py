@@ -4,10 +4,13 @@ import os
 import streamlit as st
 import yfinance as yf
 from datetime import datetime
+
 from dotenv import load_dotenv
+
 from langchain_google_genai import ChatGoogleGenerativeAI
-with langchain.agents import initialize_agent, AgentType
-from langchain.tools import Tool
+from langchain.agents import initialize_agent, Tool
+from langchain.agents import AgentType
+
 
 
 load_dotenv()
