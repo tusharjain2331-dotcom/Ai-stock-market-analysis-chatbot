@@ -7,7 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 
 load_dotenv()
 
@@ -32,6 +32,10 @@ if GOOGLE_API_KEY:
     st.sidebar.success("API Key Loaded!!")
 else:
     st.sidebar.info("Enter API Key")
+
+if st.sidebar.button("🗑️ Clear Chat"):
+    st.session_state.chat_history = []
+    st.rerun()
 
 # ==================== STEP 3 : STOCK TOOL ====================
 
@@ -74,46 +78,76 @@ tools_by_name = {
     "current_datetime": current_datetime
 }
 
-# ==================== STEP 6 : LOAD GEMINI ====================
+# ==================== STEP 5B : HELPER TO EXTRACT PLAIN TEXT ====================
+
+def extract_text(content):
+    """
+    Gemini/LangChain sometimes returns content as a string,
+    and sometimes as a list of blocks like:
+    [{"type": "text", "text": "...", "extras": {...}}]
+    This normalizes it into a clean plain string.
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                if block.get("type") == "text" and "text" in block:
+                    parts.append(block["text"])
+                elif "text" in block:
+                    parts.append(block["text"])
+        return "\n".join(parts).strip()
+
+    return str(content)
 
 # ==================== STEP 6 : LOAD GEMINI ====================
 
 if GOOGLE_API_KEY:
 
     llm = ChatGoogleGenerativeAI(
-    model="gemini-3.5-flash",
-    temperature=0.3
+        model="gemini-3.5-flash",
+        temperature=0.3
     )
 
-    # Bind tools directly to the LLM
     llm_with_tools = llm.bind_tools(tools)
 
-    # ==================== STEP 7 : USER INPUT ====================
+    # ==================== STEP 7 : CHAT STATE ====================
 
-    st.subheader("Ask Your Question")
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []  # list of {"role": "user"/"assistant", "content": str}
 
-    user_question = st.text_area(
-        "Example:\nWhat is the current price of AAPL?"
-    )
+    # Render existing chat history as chat bubbles
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    if st.button("Get Answer"):
+    # ==================== STEP 8 : CHAT INPUT ====================
 
-        if user_question:
+    user_question = st.chat_input("Ask about a stock... e.g. What is the current price of AAPL?")
 
-            with st.spinner("Generating Answer..."):
+    if user_question:
 
+        # Show user's message immediately
+        st.session_state.chat_history.append({"role": "user", "content": user_question})
+        with st.chat_message("user"):
+            st.markdown(user_question)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
                 try:
                     messages = [HumanMessage(content=user_question)]
                     ai_msg = llm_with_tools.invoke(messages)
                     messages.append(ai_msg)
 
-                    # Check if Gemini decided to invoke a tool
                     if ai_msg.tool_calls:
                         for tool_call in ai_msg.tool_calls:
                             tool_name = tool_call["name"]
                             tool_args = tool_call["args"]
 
-                            # Execute the requested function
                             if tool_name in tools_by_name:
                                 tool_output = tools_by_name[tool_name](**tool_args)
                             else:
@@ -126,19 +160,18 @@ if GOOGLE_API_KEY:
                                 )
                             )
 
-                        # Pass tool results back to Gemini for final summary
                         final_response = llm.invoke(messages)
-                        st.success("Answer Generated")
-                        st.write(final_response.content)
+                        answer_text = extract_text(final_response.content)
                     else:
-                        st.success("Answer Generated")
-                        st.write(ai_msg.content)
+                        answer_text = extract_text(ai_msg.content)
+
+                    st.markdown(answer_text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": answer_text})
 
                 except Exception as e:
-                    st.error("Something went wrong.")
-                    st.write(f"Error Details: {e}")
+                    error_text = f"⚠️ Something went wrong.\n\n**Error Details:** {e}"
+                    st.markdown(error_text)
+                    st.session_state.chat_history.append({"role": "assistant", "content": error_text})
 
-        else:
-            st.warning("Please enter a question.")
 else:
     st.info("Please enter your Google API Key in the sidebar to start.")
