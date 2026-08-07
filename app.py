@@ -81,9 +81,9 @@ tools_by_name = {
 if GOOGLE_API_KEY:
 
     llm = ChatGoogleGenerativeAI(
-
-        model="gemini-2.0-flash", 
-        temperature=0.3
+    model="gemini-3.5-flash",
+    temperature=0.3
+)
     )
 
     # Bind tools directly to the LLM
