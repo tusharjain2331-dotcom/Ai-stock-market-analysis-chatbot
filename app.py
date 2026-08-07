@@ -7,9 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.tools import Tool
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, ToolMessage
 
 load_dotenv()
 
@@ -38,6 +36,7 @@ else:
 # ==================== STEP 3 : STOCK TOOL ====================
 
 def get_stock_price(symbol: str) -> str:
+    """Fetch live stock price details using a stock ticker symbol like AAPL, TSLA, MSFT, RELIANCE.NS."""
     try:
         clean_symbol = symbol.strip().replace("'", "").replace('"', "")
         stock = yf.Ticker(clean_symbol.upper())
@@ -63,23 +62,17 @@ Day Low : {low}
 # ==================== STEP 4 : DATE TIME TOOL ====================
 
 def current_datetime(query: str = "") -> str:
+    """Returns today's date and current time."""
     now = datetime.now()
     return now.strftime("Current Date : %d-%m-%Y\nCurrent Time : %H:%M:%S")
 
-# ==================== STEP 5 : CREATE TOOLS ====================
+# ==================== STEP 5 : TOOL MAPPING ====================
 
-tools = [
-    Tool(
-        name="Stock_Price_Tool", 
-        func=get_stock_price,
-        description="Use this tool to get live stock price using stock symbol like AAPL, TSLA, MSFT, RELIANCE.NS."
-    ),
-    Tool(
-        name="Current_Date_Time",
-        func=current_datetime,
-        description="Use this tool whenever user asks today's date or current time."
-    )
-]
+tools = [get_stock_price, current_datetime]
+tools_by_name = {
+    "get_stock_price": get_stock_price,
+    "current_datetime": current_datetime
+}
 
 # ==================== STEP 6 : LOAD GEMINI ====================
 
@@ -90,19 +83,10 @@ if GOOGLE_API_KEY:
         temperature=0.3
     )
 
-    # Prompt required for modern Tool Calling Agents
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful financial AI assistant capable of looking up stock prices and current time."),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
+    # Bind tools directly to the LLM
+    llm_with_tools = llm.bind_tools(tools)
 
-    # ==================== STEP 7 : CREATE AGENT ====================
-
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
-
-    # ==================== STEP 8 : USER INPUT ====================
+    # ==================== STEP 7 : USER INPUT ====================
 
     st.subheader("Ask Your Question")
 
@@ -117,10 +101,36 @@ if GOOGLE_API_KEY:
             with st.spinner("Generating Answer..."):
 
                 try:
-                    response = agent_executor.invoke({"input": user_question})
+                    messages = [HumanMessage(content=user_question)]
+                    ai_msg = llm_with_tools.invoke(messages)
+                    messages.append(ai_msg)
 
-                    st.success("Answer Generated")
-                    st.write(response["output"])
+                    # Check if Gemini decided to invoke a tool
+                    if ai_msg.tool_calls:
+                        for tool_call in ai_msg.tool_calls:
+                            tool_name = tool_call["name"]
+                            tool_args = tool_call["args"]
+
+                            # Execute the requested function
+                            if tool_name in tools_by_name:
+                                tool_output = tools_by_name[tool_name](**tool_args)
+                            else:
+                                tool_output = f"Tool {tool_name} not found."
+
+                            messages.append(
+                                ToolMessage(
+                                    content=str(tool_output),
+                                    tool_call_id=tool_call["id"]
+                                )
+                            )
+
+                        # Pass tool results back to Gemini for final summary
+                        final_response = llm.invoke(messages)
+                        st.success("Answer Generated")
+                        st.write(final_response.content)
+                    else:
+                        st.success("Answer Generated")
+                        st.write(ai_msg.content)
 
                 except Exception as e:
                     st.error("Something went wrong.")
