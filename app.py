@@ -81,7 +81,7 @@ tools_by_name = {
 if GOOGLE_API_KEY:
 
     llm = ChatGoogleGenerativeAI(
-        # Change this from "gemini-1.5-flash" to an active model alias
+
         model="gemini-2.0-flash", 
         temperature=0.3
     )
