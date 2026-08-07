@@ -4,17 +4,14 @@ import os
 import streamlit as st
 import yfinance as yf
 from datetime import datetime
-
 from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import initialize_agent, Tool
-from langchain.agents import AgentType
-
-
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.tools import Tool
+from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
-
 
 # ==================== STEP 2 : PAGE CONFIG ====================
 
@@ -38,15 +35,11 @@ if GOOGLE_API_KEY:
 else:
     st.sidebar.info("Enter API Key")
 
-
 # ==================== STEP 3 : STOCK TOOL ====================
 
 def get_stock_price(symbol: str) -> str:
-
     try:
-        # Sanitize input: LLMs sometimes pass symbols with quotes or trailing spaces
         clean_symbol = symbol.strip().replace("'", "").replace('"', "")
-        
         stock = yf.Ticker(clean_symbol.upper())
         info = stock.info
 
@@ -64,21 +57,14 @@ Open Price : {open_price}
 Day High : {high}
 Day Low : {low}
 """
-
     except Exception:
         return "Unable to fetch stock information. Make sure the ticker symbol is correct."
 
-
 # ==================== STEP 4 : DATE TIME TOOL ====================
 
-def current_datetime(query: str) -> str:
-    # Langchain tools always pass a string input, even if it's unused. 
+def current_datetime(query: str = "") -> str:
     now = datetime.now()
-
-    return now.strftime(
-        "Current Date : %d-%m-%Y\nCurrent Time : %H:%M:%S"
-    )
-
+    return now.strftime("Current Date : %d-%m-%Y\nCurrent Time : %H:%M:%S")
 
 # ==================== STEP 5 : CREATE TOOLS ====================
 
@@ -95,7 +81,6 @@ tools = [
     )
 ]
 
-
 # ==================== STEP 6 : LOAD GEMINI ====================
 
 if GOOGLE_API_KEY:
@@ -105,15 +90,17 @@ if GOOGLE_API_KEY:
         temperature=0.3
     )
 
+    # Prompt required for modern Tool Calling Agents
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful financial AI assistant capable of looking up stock prices and current time."),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}"),
+    ])
+
     # ==================== STEP 7 : CREATE AGENT ====================
 
-    agent = initialize_agent(
-        tools=tools,
-        llm=llm,
-        agent=AgentType.CHAT_ZERO_SHOT_REACT_DESCRIPTION, 
-        handle_parsing_errors=True, 
-        verbose=False
-    )
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
 
     # ==================== STEP 8 : USER INPUT ====================
 
@@ -130,8 +117,7 @@ if GOOGLE_API_KEY:
             with st.spinner("Generating Answer..."):
 
                 try:
-                    # Update to 'invoke' as 'run' is deprecated
-                    response = agent.invoke({"input": user_question})
+                    response = agent_executor.invoke({"input": user_question})
 
                     st.success("Answer Generated")
                     st.write(response["output"])
