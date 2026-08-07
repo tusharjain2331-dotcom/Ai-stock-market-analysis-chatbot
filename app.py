@@ -83,7 +83,6 @@ if GOOGLE_API_KEY:
     llm = ChatGoogleGenerativeAI(
     model="gemini-3.5-flash",
     temperature=0.3
-)
     )
 
     # Bind tools directly to the LLM
